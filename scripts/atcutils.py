@@ -14,6 +14,7 @@ from requests.auth import HTTPBasicAuth
 from jinja2 import Environment, FileSystemLoader
 from pprint import pprint
 import warnings
+from yaml.scanner import ScannerError
 
 
 
@@ -323,8 +324,6 @@ class ATCutils:
 
         resp = json.loads(response.text)
 
-        # print(resp)
-
         if "data" in resp.keys():
             if "successful" in resp["data"].keys() \
                     and bool(resp["data"]["successful"]):
@@ -529,7 +528,7 @@ class ATCutils:
                     if isinstance(val2, str) or isinstance(val2, int):
                         dictionary_of_fields.append(_field)
                         break
-                    elif isinstance(val,str):
+                    elif isinstance(val2, str):
                         continue
                     else:
                         for val3 in val2:
@@ -541,10 +540,13 @@ class ATCutils:
 
     @staticmethod
     def search_for_event_ids_in_selection(detection_dict):
-        """No need"""
-        # in case of "keywords"
+        """Collect all Event IDs from all elements under 'detection' section"""
+
+        # in case of "keywords", which is list of strings — skip it
         if isinstance(detection_dict, list):
-            return False
+            for item in detection_dict:
+                if isinstance(item, str):
+                    return False
 
         list_of_event_ids = []
 
@@ -569,10 +571,13 @@ class ATCutils:
 
     @staticmethod
     def check_for_command_line_in_selection(detection_dict):
-        """No need"""
-        # in case of "keywords"
+        """Lookup and check if there are any kind of command line in detection logic"""
+
+        # in case of "keywords", which is list of strings — skip it
         if isinstance(detection_dict, list):
-            return False
+            for item in detection_dict:
+                if isinstance(item, str):
+                    return False
 
         for _field in detection_dict:
             if str(_field) in ["condition", "timeframe"]:
@@ -599,26 +604,29 @@ class ATCutils:
     def check_for_event_ids_presence(detection_rule_obj):
         """check if this is event id based detection rule"""
 
-        event_id_based_dr = False
-
         for _field in detection_rule_obj['detection']:
             if _field in ["condition", "timeframe"]:
                 continue
             for __field in detection_rule_obj['detection'][_field]:
                 if isinstance(__field, str) or isinstance(__field, int):
                     if __field == 'EventID':
-                        event_id_based_dr = True
+                        return True
                 elif isinstance(__field, dict):
                     for item in __field:
                         if item == 'EventID':
-                            event_id_based_dr = True
-                            break
-                if event_id_based_dr:
-                    break
-            if event_id_based_dr:
-                    break
+                            return True
 
-        return event_id_based_dr
+        return False
+
+    @staticmethod
+    def check_for_enrichment_presence(detection_rule_obj):
+        """check if this Data for this Detection Rule required any enrichments"""
+
+        if detection_rule_obj.get('enrichment'):
+            return True
+        else:
+            return False
+
 
     @staticmethod
     def get_logsource_of_the_document(detection_rule_obj):
@@ -626,7 +634,7 @@ class ATCutils:
 
         logsource = {}
         _temp_list = []
-        logsource_optional_fields = [ 'category', 'product', 'service' ]
+        logsource_optional_fields = ['category', 'product', 'service']
 
         if 'logsource' in detection_rule_obj:
             for val in logsource_optional_fields:
@@ -661,6 +669,17 @@ class ATCutils:
             * if logsource has no EventID field, we calculate Data Needed by
               logsource and fields in all detection sections
         """
+
+        # first of all, if data for this Detection Rule requires any enrichments,
+        # we will collect all Data Needed fields from "data_needed" field of 
+        # linked Enrichment entities
+        if ATCutils.check_for_enrichment_presence(detectionrule):
+            en_obj_list = ATCutils.load_yamls('../enrichments')
+
+            for linked_enrichments in detectionrule['enrichment']:
+                for enrichment in en_obj_list:
+                    if linked_enrichments == enrichment['title']:
+                        final_list += enrichment['data_needed']
 
         # if there are no multiple logsources defined (multiple documents)
         if not detectionrule.get('action'):
@@ -861,7 +880,7 @@ class ATCutils:
 
             if 'platform' in x and 'channel' in x:
                 if x.get('platform') == y.get('platform') and x.get(
-                    'channel') == y.get('channel'):
+                          'channel') == y.get('channel'):
                     list_of_DN_matched_by_logsource.append(dn)
             else:
                 if x.get('platform') == y.get('platform'):
